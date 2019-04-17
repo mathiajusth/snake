@@ -16,18 +16,41 @@ import Time
 ---- MODEL ----
 
 
+type alias Model =
+    { headPosition : Position
+    , headDirection : Direction
+    }
+
+
+type Direction
+    = Up
+    | Down
+    | Left
+    | Right
+
+
+opposite : Direction -> Direction
+opposite direction =
+    case direction of
+        Up ->
+            Down
+
+        Down ->
+            Up
+
+        Left ->
+            Right
+
+        Right ->
+            Left
+
+
 type alias Position =
     ( Int, Int )
 
 
 type alias Coordinates =
     ( Float, Float )
-
-
-type alias Model =
-    { headPosition : Position
-    , headDirection : Direction
-    }
 
 
 init : () -> ( Model, Cmd Msg )
@@ -95,29 +118,6 @@ update msg model =
                     ( model, Cmd.none )
 
 
-type Direction
-    = Up
-    | Down
-    | Left
-    | Right
-
-
-opposite : Direction -> Direction
-opposite direction =
-    case direction of
-        Up ->
-            Down
-
-        Down ->
-            Up
-
-        Left ->
-            Right
-
-        Right ->
-            Left
-
-
 mapBoth : (a -> b) -> ( a, a ) -> ( b, b )
 mapBoth f ( x, y ) =
     ( f x, f y )
@@ -167,11 +167,57 @@ onKeyDown tagger =
     on "keydown" (Json.map tagger keyCode)
 
 
+decodeArrow : Int -> Direction
+decodeArrow int =
+    case int of
+        37 ->
+            Left
+
+        38 ->
+            Up
+
+        39 ->
+            Right
+
+        40 ->
+            Down
+
+        _ ->
+            Right
+
+
+isArrow : Int -> Bool
+isArrow key =
+    case key of
+        37 ->
+            True
+
+        38 ->
+            True
+
+        39 ->
+            True
+
+        40 ->
+            True
+
+        _ ->
+            False
+
+
+maybeLook key =
+    if isArrow key then
+        Look (decodeArrow key)
+
+    else
+        Noop
+
+
 view : Model -> Html Msg
 view model =
-    div [ id "123", tabindex 0, onKeyDown KeyDown, style "outline" "none", style "height" "100vh" ]
+    div [ id "123", tabindex 0, onKeyDown maybeLook, style "outline" "none", style "height" "100vh" ]
         [ Canvas.toHtml ( canvasLength, canvasLength )
-            [ style "border" "1px solid black", autofocus True, onKeyDown KeyDown ]
+            [ style "border" "1px solid black" ]
             [ renderBackground
             , renderSnakeHead model.headPosition
             ]
