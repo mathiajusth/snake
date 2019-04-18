@@ -8,6 +8,7 @@ import Html exposing (Attribute, Html, div, h1, img, input, text)
 import Html.Attributes exposing (autofocus, hidden, id, src, style, tabindex)
 import Html.Events exposing (keyCode, on)
 import Json.Decode as Json
+import Random
 import Task
 import Time
 
@@ -16,10 +17,22 @@ import Time
 ---- MODEL ----
 
 
-type alias Model =
-    { headPosition : Position
-    , headDirection : Direction
+type Model
+    = Playing GameModel
+    | GameOver
+
+
+type alias GameModel =
+    { head : Position
+    , tail : List Direction
+    , facing : Direction
+    , food : Position
     }
+
+
+type FoodStatus
+    = Eaten
+    | NotEaten
 
 
 type Direction
@@ -29,8 +42,8 @@ type Direction
     | Right
 
 
-opposite : Direction -> Direction
-opposite direction =
+reverse : Direction -> Direction
+reverse direction =
     case direction of
         Up ->
             Down
@@ -55,9 +68,12 @@ type alias Coordinates =
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { headPosition = ( 0, 1 )
-      , headDirection = Right
-      }
+    ( Playing
+        { head = ( 0, 1 )
+        , tail = [ Left, Left, Left ]
+        , facing = Right
+        , food = ( 5, 5 )
+        }
     , Task.attempt (always Noop) (focus "123")
     )
 
@@ -68,54 +84,87 @@ init _ =
 
 type Msg
     = Noop
-    | Look Direction
-    | Move
-    | KeyDown Int
+    | Move Direction
+    | PlaceFood Position
+    | GenerateFood
+    | PlayAgain
+    | EndGame
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case msg of
-        Noop ->
-            ( model, Cmd.none )
-
-        Look newDirection ->
-            ( { model
-                | headDirection =
+    case model of
+        Playing gameModel ->
+            let
+                { head, tail, facing, food } =
+                    gameModel
+            in
+            case msg of
+                Move direction ->
                     let
-                        currentDirection =
-                            model.headDirection
+                        newHeadPos =
+                            move direction head
                     in
-                    if currentDirection == opposite newDirection then
-                        currentDirection
+                    case newHeadPos of
+                        Nothing ->
+                            ( GameOver, Cmd.none )
 
-                    else
-                        newDirection
-              }
-            , Cmd.none
-            )
+                        Just newHead ->
+                            let
+                                isEating =
+                                    newHead == food
+                            in
+                            Playing
+                                { gameModel
+                                    | head = newHead
+                                    , tail =
+                                        reverse direction
+                                            :: (if isEating then
+                                                    tail
 
-        Move ->
-            ( { model | headPosition = move model.headDirection model.headPosition }
-            , Cmd.none
-            )
+                                                else
+                                                    List.take (List.length tail - 1) tail
+                                               )
+                                    , facing = direction
+                                }
+                                |> update
+                                    (if isEating then
+                                        GenerateFood
 
-        KeyDown int ->
-            case int of
-                37 ->
-                    model |> update (Look Left)
+                                     else
+                                        Noop
+                                    )
 
-                38 ->
-                    model |> update (Look Up)
+                GenerateFood ->
+                    ( model, Random.generate PlaceFood randomPosition )
 
-                39 ->
-                    model |> update (Look Right)
+                PlaceFood position ->
+                    -- Random.int sometimes produces an int outside of the given rabge hence the modBy safeguard
+                    ( Playing
+                        { gameModel
+                            | food = mapBoth (modBy worldSize) position
+                        }
+                    , Cmd.none
+                    )
 
-                40 ->
-                    model |> update (Look Down)
+                EndGame ->
+                    ( GameOver, Cmd.none )
+
+                _ ->
+                    ( Playing gameModel, Cmd.none )
+
+        GameOver ->
+            case msg of
+                PlayAgain ->
+                    init ()
 
                 _ ->
                     ( model, Cmd.none )
+
+
+randomPosition : Random.Generator ( Int, Int )
+randomPosition =
+    Random.pair (Random.int 0 worldSize) (Random.int 0 worldSize)
 
 
 mapBoth : (a -> b) -> ( a, a ) -> ( b, b )
@@ -123,22 +172,33 @@ mapBoth f ( x, y ) =
     ( f x, f y )
 
 
-move : Direction -> Position -> Position
+move : Direction -> Position -> Maybe Position
 move direction ( x, y ) =
-    mapBoth (modBy worldSize)
-        (case direction of
-            Up ->
-                ( x, y - 1 )
+    let
+        ( newX, newY ) =
+            case direction of
+                Up ->
+                    ( x, y - 1 )
 
-            Down ->
-                ( x, y + 1 )
+                Down ->
+                    ( x, y + 1 )
 
-            Right ->
-                ( x + 1, y )
+                Right ->
+                    ( x + 1, y )
 
-            Left ->
-                ( x - 1, y )
-        )
+                Left ->
+                    ( x - 1, y )
+    in
+    if List.all (inRange 0 worldSize) [ newX, newY ] then
+        Just ( newX, newY )
+
+    else
+        Nothing
+
+
+inRange : Int -> Int -> Int -> Bool
+inRange min max n =
+    min <= n && n <= max
 
 
 
@@ -150,10 +210,10 @@ canvasLength =
 
 
 worldSize =
-    30
+    40
 
 
-snakeSize =
+snakeBodypartLength =
     canvasLength / worldSize
 
 
@@ -205,9 +265,17 @@ isArrow key =
             False
 
 
-maybeLook key =
+maybeLook currentlyFacing key =
     if isArrow key then
-        Look (decodeArrow key)
+        let
+            arrow =
+                decodeArrow key
+        in
+        if arrow == reverse currentlyFacing then
+            Noop
+
+        else
+            Move arrow
 
     else
         Noop
@@ -215,27 +283,62 @@ maybeLook key =
 
 view : Model -> Html Msg
 view model =
-    div [ id "123", tabindex 0, onKeyDown maybeLook, style "outline" "none", style "height" "100vh" ]
-        [ Canvas.toHtml ( canvasLength, canvasLength )
-            [ style "border" "1px solid black" ]
-            [ renderBackground
-            , renderSnakeHead model.headPosition
-            ]
+    case model of
+        Playing gameModel ->
+            let
+                { head, tail, facing, food } =
+                    gameModel
+            in
+            div [ id "123", tabindex 0, onKeyDown (maybeLook facing), style "outline" "none", style "height" "100vh" ]
+                [ Canvas.toHtml ( canvasLength, canvasLength )
+                    [ style "border" "1px solid black" ]
+                    (renderBackground
+                        :: renderHead head
+                        :: renderFood food
+                        :: renderBodyparts head tail
+                    )
+                ]
 
-        -- , input
-        --     []
-        --     []
-        ]
+        GameOver ->
+            text "Game Over"
+
+
+renderBodyparts : Position -> List Direction -> List Renderable
+renderBodyparts previousPosition tail =
+    case tail of
+        direction :: directions ->
+            let
+                position =
+                    move direction previousPosition
+            in
+            case position of
+                Just pos ->
+                    renderSquare Color.blue snakeBodypartLength pos :: renderBodyparts pos directions
+
+                Nothing ->
+                    []
+
+        -- never happens
+        [] ->
+            []
+
+
+renderSquare color length position =
+    shapes
+        [ fill color ]
+        [ rect (positionToCoordinates position) length length ]
 
 
 renderBackground =
-    shapes [ fill Color.gray ]
-        [ rect ( 0, 0 ) canvasLength canvasLength ]
+    renderSquare Color.gray canvasLength ( 0, 0 )
 
 
-renderSnakeHead position =
-    shapes [ fill Color.darkCharcoal ]
-        [ rect (positionToCoordinates position) snakeSize snakeSize ]
+renderHead =
+    renderSquare Color.darkCharcoal snakeBodypartLength
+
+
+renderFood food =
+    renderSquare Color.red snakeBodypartLength food
 
 
 
@@ -243,8 +346,13 @@ renderSnakeHead position =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions _ =
-    Time.every 300 (\time -> Move)
+subscriptions model =
+    case model of
+        Playing gameModel ->
+            Time.every 300 (\time -> Move gameModel.facing)
+
+        GameOver ->
+            Sub.none
 
 
 
