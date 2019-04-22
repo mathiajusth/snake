@@ -4,9 +4,9 @@ import Browser
 import Browser.Dom exposing (focus)
 import Canvas exposing (..)
 import Color
-import Html exposing (Attribute, Html, div, h1, img, input, text)
+import Html exposing (Attribute, Html, button, div, h1, img, input, text)
 import Html.Attributes exposing (autofocus, hidden, id, src, style, tabindex)
-import Html.Events exposing (keyCode, on)
+import Html.Events exposing (keyCode, on, onClick)
 import Json.Decode as Json
 import Random
 import Task
@@ -316,7 +316,12 @@ view model =
                 ]
 
         GameOver ->
-            text "Game Over"
+            div []
+                [ text "Game Over"
+                , button
+                    [ onClick PlayAgain ]
+                    [ text "Try Again!" ]
+                ]
 
 
 renderSquare color length position =
