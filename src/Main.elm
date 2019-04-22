@@ -24,15 +24,10 @@ type Model
 
 type alias GameModel =
     { head : Position
-    , tail : List Direction
+    , tail : List Position
     , facing : Direction
     , food : Position
     }
-
-
-type FoodStatus
-    = Eaten
-    | NotEaten
 
 
 type Direction
@@ -66,15 +61,33 @@ type alias Coordinates =
     ( Float, Float )
 
 
+buildTail : Position -> List Direction -> List Position
+buildTail head dirs =
+    case dirs of
+        [] ->
+            []
+
+        d :: ds ->
+            let
+                pos =
+                    move d head
+            in
+            pos :: buildTail pos ds
+
+
+headInitPosition =
+    ( worldSize // 2, worldSize // 2 )
+
+
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( Playing
-        { head = ( 0, 1 )
-        , tail = [ Left, Left, Left ]
+        { head = headInitPosition
+        , tail = buildTail headInitPosition [ Left, Left, Left ]
         , facing = Right
         , food = ( 5, 5 )
         }
-    , Task.attempt (always Noop) (focus "123")
+    , Task.attempt (always Noop) (focus "canvasWrap")
     )
 
 
@@ -91,6 +104,16 @@ type Msg
     | EndGame
 
 
+isHeadOutsideWorld : Position -> Bool
+isHeadOutsideWorld ( x, y ) =
+    not (List.all (inRange 0 worldSize) [ x, y ])
+
+
+didCrashInto : Position -> List Position -> Bool
+didCrashInto head obstacles =
+    List.member head obstacles
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case model of
@@ -102,50 +125,61 @@ update msg model =
             case msg of
                 Move direction ->
                     let
-                        newHeadPos =
+                        newHead =
                             move direction head
+
+                        isEating =
+                            newHead == food
+
+                        newTail =
+                            head
+                                :: (if isEating then
+                                        tail
+
+                                    else
+                                        dropLast tail
+                                   )
+
+                        isGameOver =
+                            isHeadOutsideWorld newHead || didCrashInto head tail
                     in
-                    case newHeadPos of
-                        Nothing ->
-                            ( GameOver, Cmd.none )
+                    if isGameOver then
+                        ( GameOver, Cmd.none )
 
-                        Just newHead ->
-                            let
-                                isEating =
-                                    newHead == food
-                            in
-                            Playing
-                                { gameModel
-                                    | head = newHead
-                                    , tail =
-                                        reverse direction
-                                            :: (if isEating then
-                                                    tail
+                    else
+                        Playing
+                            { gameModel
+                                | head = newHead
+                                , tail = newTail
+                                , facing = direction
+                            }
+                            |> update
+                                (if isEating then
+                                    GenerateFood
 
-                                                else
-                                                    List.take (List.length tail - 1) tail
-                                               )
-                                    , facing = direction
-                                }
-                                |> update
-                                    (if isEating then
-                                        GenerateFood
-
-                                     else
-                                        Noop
-                                    )
+                                 else
+                                    Noop
+                                )
 
                 GenerateFood ->
                     ( model, Random.generate PlaceFood randomPosition )
 
                 PlaceFood position ->
-                    -- Random.int sometimes produces an int outside of the given rabge hence the modBy safeguard
-                    ( Playing
-                        { gameModel
-                            | food = mapBoth (modBy worldSize) position
-                        }
-                    , Cmd.none
-                    )
+                    let
+                        foodPos =
+                            -- Random.int sometimes produces an int outside of the given rabge hence the modBy safeguard
+                            mapBoth (modBy worldSize) position
+                    in
+                    if didCrashInto foodPos (head :: tail) then
+                        model |> update GenerateFood
+
+                    else
+                        ( Playing
+                            { gameModel
+                                | food = foodPos
+                            }
+                        , Cmd.none
+                        )
 
                 EndGame ->
                     ( GameOver, Cmd.none )
@@ -167,38 +201,20 @@ randomPosition =
     Random.pair (Random.int 0 worldSize) (Random.int 0 worldSize)
 
 
-mapBoth : (a -> b) -> ( a, a ) -> ( b, b )
-mapBoth f ( x, y ) =
-    ( f x, f y )
-
-
-move : Direction -> Position -> Maybe Position
+move : Direction -> Position -> Position
 move direction ( x, y ) =
-    let
-        ( newX, newY ) =
-            case direction of
-                Up ->
-                    ( x, y - 1 )
+    case direction of
+        Up ->
+            ( x, y - 1 )
 
-                Down ->
-                    ( x, y + 1 )
+        Down ->
+            ( x, y + 1 )
 
-                Right ->
-                    ( x + 1, y )
+        Right ->
+            ( x + 1, y )
 
-                Left ->
-                    ( x - 1, y )
-    in
-    if List.all (inRange 0 worldSize) [ newX, newY ] then
-        Just ( newX, newY )
-
-    else
-        Nothing
-
-
-inRange : Int -> Int -> Int -> Bool
-inRange min max n =
-    min <= n && n <= max
+        Left ->
+            ( x - 1, y )
 
 
 
@@ -265,7 +281,7 @@ isArrow key =
             False
 
 
-maybeLook currentlyFacing key =
+maybeMove currentlyFacing key =
     if isArrow key then
         let
             arrow =
@@ -289,38 +305,18 @@ view model =
                 { head, tail, facing, food } =
                     gameModel
             in
-            div [ id "123", tabindex 0, onKeyDown (maybeLook facing), style "outline" "none", style "height" "100vh" ]
+            div [ id "canvasWrap", tabindex 0, onKeyDown (maybeMove facing), style "outline" "none", style "height" "100vh" ]
                 [ Canvas.toHtml ( canvasLength, canvasLength )
                     [ style "border" "1px solid black" ]
                     (renderBackground
                         :: renderHead head
                         :: renderFood food
-                        :: renderBodyparts head tail
+                        :: renderTail tail
                     )
                 ]
 
         GameOver ->
             text "Game Over"
-
-
-renderBodyparts : Position -> List Direction -> List Renderable
-renderBodyparts previousPosition tail =
-    case tail of
-        direction :: directions ->
-            let
-                position =
-                    move direction previousPosition
-            in
-            case position of
-                Just pos ->
-                    renderSquare Color.blue snakeBodypartLength pos :: renderBodyparts pos directions
-
-                Nothing ->
-                    []
-
-        -- never happens
-        [] ->
-            []
 
 
 renderSquare color length position =
@@ -335,6 +331,10 @@ renderBackground =
 
 renderHead =
     renderSquare Color.darkCharcoal snakeBodypartLength
+
+
+renderTail =
+    List.map (renderSquare Color.blue snakeBodypartLength)
 
 
 renderFood food =
@@ -367,3 +367,22 @@ main =
         , update = update
         , subscriptions = subscriptions
         }
+
+
+
+---- UTILS ----
+
+
+dropLast : List a -> List a
+dropLast xs =
+    List.take (List.length xs - 1) xs
+
+
+mapBoth : (a -> b) -> ( a, a ) -> ( b, b )
+mapBoth f ( x, y ) =
+    ( f x, f y )
+
+
+inRange : Int -> Int -> Int -> Bool
+inRange min max n =
+    min <= n && n <= max
