@@ -85,10 +85,18 @@ init _ =
         { head = headInitPosition
         , tail = buildTail headInitPosition [ Left, Left, Left ]
         , facing = Right
-        , food = ( 5, 5 )
+        , food = ( 0, 0 )
         }
-    , Task.attempt (always Noop) (focus "canvasWrap")
+    , Cmd.batch [ focusCanvas, generateFood ]
     )
+
+
+focusCanvas =
+    Task.attempt (always Noop) (focus "canvasWrap")
+
+
+generateFood =
+    Random.generate PlaceFood randomPosition
 
 
 
@@ -162,7 +170,7 @@ update msg model =
                                 )
 
                 GenerateFood ->
-                    ( model, Random.generate PlaceFood randomPosition )
+                    ( model, generateFood )
 
                 PlaceFood position ->
                     let
