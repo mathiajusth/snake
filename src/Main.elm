@@ -355,34 +355,27 @@ view model =
             let
                 { head, tail, facing, food, bellyBumps } =
                     gameModel
+
+                thingsToRender =
+                    [ renderBackground, renderHead head, renderFood food ] ++ renderTail tail ++ renderBellyBumps head bellyBumps
             in
             div [ id "canvasWrap", tabindex 0, onKeyDown (maybeMove facing), style "outline" "none", style "height" "100vh" ]
-                [ Canvas.toHtml ( canvasLength, canvasLength )
-                    [ style "border" "1px solid black" ]
-                    ([ renderBackground, renderHead head, renderFood food ]
-                        ++ renderTail tail
-                        ++ renderBellyBumps head bellyBumps
-                    )
-                ]
+                [ Canvas.toHtml ( canvasLength, canvasLength ) [ style "border" "1px solid black" ] thingsToRender ]
 
         GameOver ->
             div []
                 [ text "Game Over"
-                , button
-                    [ onClick PlayAgain ]
-                    [ text "Try Again!" ]
+                , button [ onClick PlayAgain ] [ text "Try Again!" ]
                 ]
 
 
 renderSquare color length position =
-    shapes
-        [ fill color ]
+    shapes [ fill color ]
         [ rect (positionToRectCoordinates position) length length ]
 
 
 renderCircle color diameter position =
-    shapes
-        [ fill color ]
+    shapes [ fill color ]
         [ circle (positionToSquareCoordinates position) diameter ]
 
 
