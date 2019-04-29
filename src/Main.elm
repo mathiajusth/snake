@@ -272,7 +272,7 @@ snakeBodypartLength =
 
 
 snakeBumpDiameter =
-    (canvasLength / worldSize) * 0.8
+    (canvasLength / worldSize) * 0.7
 
 
 positionToRectCoordinates : Position -> Coordinates
@@ -357,7 +357,7 @@ view model =
                     [ style "border" "1px solid black" ]
                     ([ renderBackground, renderHead head, renderFood food ]
                         ++ renderTail tail
-                        ++ renderBellyBumps bellyBumps
+                        ++ renderBellyBumps head bellyBumps
                     )
                 ]
 
@@ -382,8 +382,8 @@ renderCircle color diameter position =
         [ circle (positionToSquareCoordinates position) diameter ]
 
 
-renderBellyBumps =
-    List.map (renderCircle Color.blue snakeBumpDiameter)
+renderBellyBumps head =
+    List.map (renderCircle Color.blue snakeBumpDiameter) << List.filter (\bump -> bump /= head)
 
 
 renderBackground =
