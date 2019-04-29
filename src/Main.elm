@@ -8,6 +8,7 @@ import Html exposing (Attribute, Html, button, div, h1, img, input, text)
 import Html.Attributes exposing (autofocus, hidden, id, src, style, tabindex)
 import Html.Events exposing (keyCode, on, onClick)
 import Json.Decode as Json
+import List.Extra exposing (last)
 import Random
 import Task
 import Time
@@ -27,6 +28,7 @@ type alias GameModel =
     , tail : List Position
     , facing : Direction
     , food : Position
+    , bellyBumps : List Position
     }
 
 
@@ -86,6 +88,7 @@ init _ =
         , tail = buildTail headInitPosition [ Left, Left, Left ]
         , facing = Right
         , food = ( 0, 0 )
+        , bellyBumps = []
         }
     , Cmd.batch [ focusCanvas, generateFood ]
     )
@@ -127,7 +130,7 @@ update msg model =
     case model of
         Playing gameModel ->
             let
-                { head, tail, facing, food } =
+                { head, tail, facing, food, bellyBumps } =
                     gameModel
             in
             case msg of
@@ -139,17 +142,43 @@ update msg model =
                         isEating =
                             newHead == food
 
+                        isGrowing =
+                            case ( last tail, last bellyBumps ) of
+                                ( Nothing, _ ) ->
+                                    False
+
+                                ( _, Nothing ) ->
+                                    False
+
+                                ( Just tailEnd, Just lastBump ) ->
+                                    tailEnd == lastBump
+
                         newTail =
                             head
-                                :: (if isEating then
+                                :: (if isGrowing then
                                         tail
 
                                     else
                                         dropLast tail
                                    )
 
+                        newBumps =
+                            let
+                                addedFood =
+                                    if isEating then
+                                        food :: bellyBumps
+
+                                    else
+                                        bellyBumps
+                            in
+                            if isGrowing then
+                                dropLast addedFood
+
+                            else
+                                addedFood
+
                         isGameOver =
-                            isHeadOutsideWorld newHead || didCrashInto head tail
+                            isHeadOutsideWorld newHead || didCrashInto newHead newTail
                     in
                     if isGameOver then
                         ( GameOver, Cmd.none )
@@ -160,6 +189,7 @@ update msg model =
                                 | head = newHead
                                 , tail = newTail
                                 , facing = direction
+                                , bellyBumps = newBumps
                             }
                             |> update
                                 (if isEating then
@@ -241,9 +271,18 @@ snakeBodypartLength =
     canvasLength / worldSize
 
 
-positionToCoordinates : Position -> Coordinates
-positionToCoordinates position =
+snakeBumpDiameter =
+    (canvasLength / worldSize) * 0.8
+
+
+positionToRectCoordinates : Position -> Coordinates
+positionToRectCoordinates position =
     mapBoth (\x -> toFloat x / worldSize * canvasLength) position
+
+
+positionToSquareCoordinates : Position -> Coordinates
+positionToSquareCoordinates position =
+    mapBoth (\x -> (toFloat x / worldSize * canvasLength) + (canvasLength / worldSize / 2)) position
 
 
 onKeyDown : (Int -> msg) -> Attribute msg
@@ -310,16 +349,15 @@ view model =
     case model of
         Playing gameModel ->
             let
-                { head, tail, facing, food } =
+                { head, tail, facing, food, bellyBumps } =
                     gameModel
             in
             div [ id "canvasWrap", tabindex 0, onKeyDown (maybeMove facing), style "outline" "none", style "height" "100vh" ]
                 [ Canvas.toHtml ( canvasLength, canvasLength )
                     [ style "border" "1px solid black" ]
-                    (renderBackground
-                        :: renderHead head
-                        :: renderFood food
-                        :: renderTail tail
+                    ([ renderBackground, renderHead head, renderFood food ]
+                        ++ renderTail tail
+                        ++ renderBellyBumps bellyBumps
                     )
                 ]
 
@@ -335,7 +373,17 @@ view model =
 renderSquare color length position =
     shapes
         [ fill color ]
-        [ rect (positionToCoordinates position) length length ]
+        [ rect (positionToRectCoordinates position) length length ]
+
+
+renderCircle color diameter position =
+    shapes
+        [ fill color ]
+        [ circle (positionToSquareCoordinates position) diameter ]
+
+
+renderBellyBumps =
+    List.map (renderCircle Color.blue snakeBumpDiameter)
 
 
 renderBackground =
