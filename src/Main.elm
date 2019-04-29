@@ -271,7 +271,11 @@ snakeBodypartLength =
     canvasLength / worldSize
 
 
-snakeBumpDiameter =
+foodDiameter =
+    (canvasLength / worldSize) * 0.55
+
+
+bellyBumpDiameter =
     (canvasLength / worldSize) * 0.7
 
 
@@ -383,7 +387,7 @@ renderCircle color diameter position =
 
 
 renderBellyBumps head =
-    List.map (renderCircle Color.blue snakeBumpDiameter) << List.filter (\bump -> bump /= head)
+    List.map (renderCircle Color.blue bellyBumpDiameter) << List.filter (\bump -> bump /= head)
 
 
 renderBackground =
@@ -399,7 +403,7 @@ renderTail =
 
 
 renderFood food =
-    renderSquare Color.red snakeBodypartLength food
+    renderCircle Color.red foodDiameter food
 
 
 
