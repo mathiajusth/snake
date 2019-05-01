@@ -2,11 +2,13 @@ module Main exposing (main, view)
 
 import Browser
 import Browser.Dom exposing (focus)
-import Canvas exposing (..)
+import Canvas as Cvs
 import Color
-import Html exposing (Attribute, Html, button, div, h1, img, input, text)
-import Html.Attributes exposing (autofocus, hidden, id, src, style, tabindex)
-import Html.Events exposing (keyCode, on, onClick)
+import Css as C exposing (border3, px, rgb, solid)
+import Html.Attributes exposing (style)
+import Html.Styled as H exposing (button, div, text)
+import Html.Styled.Attributes as A exposing (autofocus, hidden, id, src, tabindex)
+import Html.Styled.Events as E exposing (keyCode, on, onClick)
 import Json.Decode as Json
 import List.Extra exposing (last)
 import Random
@@ -289,7 +291,10 @@ positionToSquareCoordinates position =
     mapBoth (\x -> (toFloat x / worldSize * canvasLength) + (canvasLength / worldSize / 2)) position
 
 
-onKeyDown : (Int -> msg) -> Attribute msg
+
+-- onKeyDown : (Int -> msg) -> Attribute msg
+
+
 onKeyDown tagger =
     on "keydown" (Json.map tagger keyCode)
 
@@ -348,7 +353,7 @@ maybeMove currentlyFacing key =
         Noop
 
 
-view : Model -> Html Msg
+view : Model -> H.Html Msg
 view model =
     case model of
         Playing gameModel ->
@@ -359,24 +364,50 @@ view model =
                 thingsToRender =
                     [ renderBackground, renderHead head, renderFood food ] ++ renderTail tail ++ renderBellyBumps head bellyBumps
             in
-            div [ id "canvasWrap", tabindex 0, onKeyDown (maybeMove facing), style "outline" "none", style "height" "100vh" ]
-                [ Canvas.toHtml ( canvasLength, canvasLength ) [ style "border" "1px solid black" ] thingsToRender ]
+            div
+                [ id "canvasWrap"
+                , tabindex 0 -- to make it focusable
+                , onKeyDown (maybeMove facing)
+                , A.css
+                    [ C.outline C.none
+                    , C.height (C.vh 100)
+                    ]
+                , A.fromUnstyled (style "outline" "none")
+                , A.fromUnstyled (style "height" "100vh")
+                ]
+                [ H.fromUnstyled
+                    (Cvs.toHtml
+                        ( canvasLength, canvasLength )
+                        [ style "border" "1px solid gray" ]
+                        thingsToRender
+                    )
+                ]
 
         GameOver ->
-            div []
+            div
+                [ A.css
+                    [ C.displayFlex
+                    , C.flexDirection C.column
+                    , C.alignItems C.center
+                    ]
+                ]
                 [ text "Game Over"
-                , button [ onClick PlayAgain ] [ text "Try Again!" ]
+                , button
+                    [ onClick PlayAgain
+                    , A.css [ C.width (C.px 100) ]
+                    ]
+                    [ text "Try Again!" ]
                 ]
 
 
 renderSquare color length position =
-    shapes [ fill color ]
-        [ rect (positionToRectCoordinates position) length length ]
+    Cvs.shapes [ Cvs.fill color ]
+        [ Cvs.rect (positionToRectCoordinates position) length length ]
 
 
 renderCircle color diameter position =
-    shapes [ fill color ]
-        [ circle (positionToSquareCoordinates position) diameter ]
+    Cvs.shapes [ Cvs.fill color ]
+        [ Cvs.circle (positionToSquareCoordinates position) diameter ]
 
 
 renderBellyBumps head =
@@ -421,7 +452,7 @@ main : Program () Model Msg
 main =
     Browser.element
         { init = init
-        , view = view
+        , view = view >> H.toUnstyled
         , update = update
         , subscriptions = subscriptions
         }
