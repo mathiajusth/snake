@@ -1,7 +1,8 @@
 module Main exposing (main, view)
 
 import Browser
-import Browser.Dom exposing (focus)
+import Browser.Dom exposing (focus, getViewport)
+import Browser.Events exposing (onResize)
 import Canvas as Cvs
 import Color
 import Css as C exposing (border3, px, rgb, solid)
@@ -20,18 +21,25 @@ import Time
 ---- MODEL ----
 
 
-type Model
-    = Playing GameModel
-    | GameOver
-
-
 type alias GameModel =
     { head : Position
     , tail : List Position
     , facing : Direction
     , food : Position
     , bellyBumps : List Position
+    , canvasEdgeLength : Float
+    , worldShape : WorldShape
     }
+
+
+type Model
+    = Playing GameModel
+    | GameOver
+
+
+type WorldShape
+    = Square
+    | Torus
 
 
 type Direction
@@ -74,7 +82,7 @@ buildTail head dirs =
         d :: ds ->
             let
                 pos =
-                    move d head
+                    justMove d head
             in
             pos :: buildTail pos ds
 
@@ -91,13 +99,19 @@ init _ =
         , facing = Right
         , food = ( 0, 0 )
         , bellyBumps = []
+        , canvasEdgeLength = 0
+        , worldShape = Torus
         }
-    , Cmd.batch [ focusCanvas, generateFood ]
+    , Cmd.batch [ focusCanvas, generateFood, setCanvasEdgeLength ]
     )
 
 
 focusCanvas =
     Task.attempt (always Noop) (focus "canvasWrap")
+
+
+setCanvasEdgeLength =
+    Task.perform (\viewport -> SetCanvasEdgeLength <| computeCanvasSide viewport.viewport.width viewport.viewport.height) getViewport
 
 
 generateFood =
@@ -115,11 +129,12 @@ type Msg
     | GenerateFood
     | PlayAgain
     | EndGame
+    | SetCanvasEdgeLength Float
 
 
 isHeadOutsideWorld : Position -> Bool
 isHeadOutsideWorld ( x, y ) =
-    not (List.all (inRange 0 worldSize) [ x, y ])
+    not <| List.all (inRange 0 worldSize) [ x, y ]
 
 
 didCrashInto : Position -> List Position -> Bool
@@ -139,7 +154,7 @@ update msg model =
                 Move direction ->
                     let
                         newHead =
-                            move direction head
+                            move gameModel.worldShape direction head
 
                         isEating =
                             newHead == food
@@ -224,6 +239,9 @@ update msg model =
                 EndGame ->
                     ( GameOver, Cmd.none )
 
+                SetCanvasEdgeLength edgeLength ->
+                    ( Playing { gameModel | canvasEdgeLength = edgeLength }, Cmd.none )
+
                 _ ->
                     ( Playing gameModel, Cmd.none )
 
@@ -241,8 +259,8 @@ randomPosition =
     Random.pair (Random.int 0 worldSize) (Random.int 0 worldSize)
 
 
-move : Direction -> Position -> Position
-move direction ( x, y ) =
+justMove : Direction -> Position -> Position
+justMove direction ( x, y ) =
     case direction of
         Up ->
             ( x, y - 1 )
@@ -257,12 +275,22 @@ move direction ( x, y ) =
             ( x - 1, y )
 
 
+move : WorldShape -> Direction -> Position -> Position
+move worldShape direction position =
+    case worldShape of
+        Square ->
+            justMove direction position
+
+        Torus ->
+            mapBoth (modBy worldSize) (justMove direction position)
+
+
 
 -- VIEW ----
 
 
 canvasLength =
-    400
+    800
 
 
 worldSize =
@@ -291,10 +319,7 @@ positionToSquareCoordinates position =
     mapBoth (\x -> (toFloat x / worldSize * canvasLength) + (canvasLength / worldSize / 2)) position
 
 
-
--- onKeyDown : (Int -> msg) -> Attribute msg
-
-
+onKeyDown : (Int -> msg) -> H.Attribute msg
 onKeyDown tagger =
     on "keydown" (Json.map tagger keyCode)
 
@@ -358,7 +383,7 @@ view model =
     case model of
         Playing gameModel ->
             let
-                { head, tail, facing, food, bellyBumps } =
+                { head, tail, facing, food, bellyBumps, canvasEdgeLength } =
                     gameModel
 
                 thingsToRender =
@@ -375,12 +400,14 @@ view model =
                 , A.fromUnstyled (style "outline" "none")
                 , A.fromUnstyled (style "height" "100vh")
                 ]
-                [ H.fromUnstyled
-                    (Cvs.toHtml
+                [ H.fromUnstyled <|
+                    Cvs.toHtml
                         ( canvasLength, canvasLength )
-                        [ style "border" "1px solid gray" ]
+                        [ style "border" "1px solid gray"
+                        , style "width" (String.fromFloat canvasEdgeLength ++ "px")
+                        , style "height" (String.fromFloat canvasEdgeLength ++ "px")
+                        ]
                         thingsToRender
-                    )
                 ]
 
         GameOver ->
@@ -401,12 +428,14 @@ view model =
 
 
 renderSquare color length position =
-    Cvs.shapes [ Cvs.fill color ]
+    Cvs.shapes
+        [ Cvs.fill color ]
         [ Cvs.rect (positionToRectCoordinates position) length length ]
 
 
 renderCircle color diameter position =
-    Cvs.shapes [ Cvs.fill color ]
+    Cvs.shapes
+        [ Cvs.fill color ]
         [ Cvs.circle (positionToSquareCoordinates position) diameter ]
 
 
@@ -423,7 +452,7 @@ renderHead =
 
 
 renderTail =
-    List.map (renderSquare Color.blue snakeBodypartLength)
+    List.map <| renderSquare Color.blue snakeBodypartLength
 
 
 renderFood food =
@@ -434,11 +463,20 @@ renderFood food =
 ---- SUBSCRIPTIONS --
 
 
+computeCanvasSide : Float -> Float -> Float
+computeCanvasSide w h =
+    min w h - 5
+
+
 subscriptions : Model -> Sub Msg
 subscriptions model =
     case model of
         Playing gameModel ->
-            Time.every 300 (\time -> Move gameModel.facing)
+            Sub.batch
+                [ Time.every 300 (\time -> Move gameModel.facing)
+                , onResize <|
+                    \windowWidth -> \windowHeight -> SetCanvasEdgeLength <| computeCanvasSide (toFloat windowWidth) (toFloat windowHeight)
+                ]
 
         GameOver ->
             Sub.none
